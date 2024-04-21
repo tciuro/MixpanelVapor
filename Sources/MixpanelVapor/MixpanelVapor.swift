@@ -5,7 +5,7 @@ import Foundation
 import UAParserSwift
 import Vapor
 
-private struct AnyContent: Content {
+struct AnyContent: Content {
     private let _encode: (Encoder) throws -> Void
     public init(_ wrapped: some Encodable) {
         self._encode = wrapped.encode
@@ -17,6 +17,18 @@ private struct AnyContent: Content {
 
     init(from _: Decoder) throws {
         fatalError("we don't need this")
+    }
+}
+
+struct Event: Content {
+    var event: String
+    var properties: [String: AnyContent]
+    
+    init(event: String, properties: [String: any Content]) {
+        self.event = event
+        self.properties = properties.mapValues { value in
+            AnyContent(value)
+        }
     }
 }
 
@@ -50,12 +62,8 @@ final class Mixpanel {
         self.configuration = configuration
     }
 
-    func track(name: String, request: Request?, params: [String: any Content]) async {
-        var properties: [String: any Content] = [
-            "time": Int(Date().timeIntervalSince1970 * 1000),
-            "$insert_id": UUID().uuidString,
-            "distinct_id": "",
-        ]
+    func track(name: String, request: Request?, metadata: [String: any Content]) async {
+        var properties: [String: any Content] = _addDefaultParams(to: metadata)
 
         if let request {
             // https://docs.mixpanel.com/docs/tracking/how-tos/effective-server-side-tracking
@@ -81,21 +89,10 @@ final class Mixpanel {
             }
         }
 
-        properties.merge(params) { current, _ in
+        properties.merge(metadata) { current, _ in
             current
         }
 
-        struct Event: Content {
-            var event: String
-            var properties: [String: AnyContent]
-
-            init(event: String, properties: [String: any Content]) {
-                self.event = event
-                self.properties = properties.mapValues { value in
-                    AnyContent(value)
-                }
-            }
-        }
 
         let event = Event(event: name, properties: properties)
 
@@ -117,26 +114,8 @@ final class Mixpanel {
         }
     }
 
-    func time(name: String, params: [String: any Content] = [:]) async {
-        var properties: [String: any Content] = [
-            "time": Int(Date().timeIntervalSince1970 * 1000),
-            "$insert_id": UUID().uuidString,
-            "distinct_id": "",
-        ]
-        
-        properties.merge(params) { current, _ in
-            current
-        }
-
-        struct Event: Content {
-            var event: String
-
-            init(event: String) {
-                self.event = event
-            }
-        }
-
-        let event = Event(event: name)
+    func time(name: String, metadata: [String: any Content] = [:]) async {
+        let event = Event(event: name, properties: _addDefaultParams(to: metadata))
 
         do {
             let response = try await client.post(URI(string: apiUrl + "/import?strict=1&project_id=\(configuration.projectId)")) { req in
@@ -154,6 +133,20 @@ final class Mixpanel {
         } catch {
             logger.report(error: error)
         }
+    }
+    
+    private func _addDefaultParams(to params: [String: any Content]) -> [String: any Content] {
+        var properties: [String: any Content] = [
+            "time": Int(Date().timeIntervalSince1970 * 1000),
+            "$insert_id": UUID().uuidString,
+            "distinct_id": "",
+        ]
+        
+        properties.merge(params) { current, _ in
+            current
+        }
+
+        return properties
     }
 }
 
@@ -202,14 +195,14 @@ public extension Application {
         ///   - request: You can optionally pass request to automatically parse the ip address and user-agent header
         ///   - params: Optional custom params assigned to the event
         public func track(name: String, request: Request? = nil, params: [String: any Content] = [:]) async {
-            await client?.track(name: name, request: request, params: params)
+            await client?.track(name: name, request: request, metadata: params)
         }
 
         /// Track the time it took for an action to occur
         /// - Parameters:
         ///   - name: The name of the event
         public func time(name: String, params: [String: any Content] = [:]) async {
-            await client?.time(name: name, params: params)
+            await client?.time(name: name, metadata: params)
         }
     }
 }
