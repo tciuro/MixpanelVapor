@@ -117,7 +117,17 @@ final class Mixpanel {
         }
     }
 
-    func time(name: String) async {
+    func time(name: String, params: [String: any Content] = [:]) async {
+        var properties: [String: any Content] = [
+            "time": Int(Date().timeIntervalSince1970 * 1000),
+            "$insert_id": UUID().uuidString,
+            "distinct_id": "",
+        ]
+        
+        properties.merge(params) { current, _ in
+            current
+        }
+
         struct Event: Content {
             var event: String
 
@@ -198,8 +208,8 @@ public extension Application {
         /// Track the time it took for an action to occur
         /// - Parameters:
         ///   - name: The name of the event
-        public func time(name: String) async {
-            await client?.time(name: name)
+        public func time(name: String, params: [String: any Content] = [:]) async {
+            await client?.time(name: name, params: params)
         }
     }
 }
