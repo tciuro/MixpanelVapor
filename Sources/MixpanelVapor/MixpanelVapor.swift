@@ -1,39 +1,33 @@
-//
-//  File.swift
-//
-//
-//  Created by Petr Pavlik on 27.12.2022.
-//
+// MixpanelVapor
+// Copyright (c) 2024 Petr Pavlik
 
 import Foundation
-import Vapor
 import UAParserSwift
+import Vapor
 
 private struct AnyContent: Content {
-
     private let _encode: (Encoder) throws -> Void
-    public init<T: Encodable>(_ wrapped: T) {
-        _encode = wrapped.encode
+    public init(_ wrapped: some Encodable) {
+        self._encode = wrapped.encode
     }
 
     func encode(to encoder: Encoder) throws {
         try _encode(encoder)
     }
-    
-    init(from decoder: Decoder) throws {
+
+    init(from _: Decoder) throws {
         fatalError("we don't need this")
     }
 }
 
 /// Auth params to configure your Mixpanel instance with
 public struct MixpanelConfiguration {
-    
     /// The project id you with to be logging events to.
     public var projectId: String
-    
+
     /// Username and password of the service account you with to use to authenticate.
     public var authorization: BasicAuthorization
-    
+
     /// Initializer
     /// - Parameters:
     ///   - projectId: The project id you with to be logging events to.
@@ -45,78 +39,105 @@ public struct MixpanelConfiguration {
 }
 
 final class Mixpanel {
-    
     private let client: Client
     private let logger: Logger
     private let apiUrl = "https://api.mixpanel.com"
     private let configuration: MixpanelConfiguration
-    
+
     init(client: Client, logger: Logger, configuration: MixpanelConfiguration) {
         self.client = client
         self.logger = logger
         self.configuration = configuration
     }
-    
+
     func track(name: String, request: Request?, params: [String: any Content]) async {
-        
         var properties: [String: any Content] = [
             "time": Int(Date().timeIntervalSince1970 * 1000),
             "$insert_id": UUID().uuidString,
-            "distinct_id": ""
+            "distinct_id": "",
         ]
-        
+
         if let request {
             // https://docs.mixpanel.com/docs/tracking/how-tos/effective-server-side-tracking
-            
+
             if let ip = request.peerAddress?.ipAddress {
                 properties["ip"] = ip
             }
-            
+
             if let userAgentHeader = request.headers[.userAgent].first {
                 let parser = UAParser(agent: userAgentHeader)
-                
+
                 if let browser = parser.browser?.name {
                     properties["$browser"] = browser
                 }
-                
+
                 if let device = parser.device?.vendor {
                     properties["$device"] = device
                 }
-                
+
                 if let os = parser.os?.name {
                     properties["$os"] = os
                 }
             }
         }
-        
+
         properties.merge(params) { current, _ in
             current
         }
-        
+
         struct Event: Content {
             var event: String
             var properties: [String: AnyContent]
-            
+
             init(event: String, properties: [String: any Content]) {
                 self.event = event
-                self.properties = properties.mapValues({ value in
+                self.properties = properties.mapValues { value in
                     AnyContent(value)
-                })
+                }
             }
         }
-        
+
         let event = Event(event: name, properties: properties)
-                
+
         do {
             let response = try await client.post(URI(string: apiUrl + "/import?strict=1&project_id=\(configuration.projectId)")) { req in
-                                
+
                 req.headers.basicAuthorization = configuration.authorization
 
                 req.headers.contentType = .json
-                
+
                 try req.content.encode([event])
             }
-            
+
+            if response.status.code >= 400 {
+                logger.error("Failed to post an event to Mixpanel", metadata: ["response": "\(response)"])
+            }
+        } catch {
+            logger.report(error: error)
+        }
+    }
+
+    func time(name: String) async {
+        struct Event: Content {
+            var event: String
+
+            init(event: String) {
+                self.event = event
+            }
+        }
+
+        let event = Event(event: name)
+
+        do {
+            let response = try await client.post(URI(string: apiUrl + "/import?strict=1&project_id=\(configuration.projectId)")) { req in
+
+                req.headers.basicAuthorization = configuration.authorization
+
+                req.headers.contentType = .json
+
+                try req.content.encode([event])
+            }
+
             if response.status.code >= 400 {
                 logger.error("Failed to post an event to Mixpanel", metadata: ["response": "\(response)"])
             }
@@ -127,7 +148,6 @@ final class Mixpanel {
 }
 
 public extension Application {
-    
     /// Access mixpanel
     ///
     /// You can also use `request.mixpanel` when logging within a route handler.
@@ -145,7 +165,7 @@ public extension Application {
 
         public var configuration: MixpanelConfiguration? {
             get {
-                self.application.storage[ConfigurationKey.self]
+                application.storage[ConfigurationKey.self]
             }
             nonmutating set {
                 self.application.storage[ConfigurationKey.self] = newValue
@@ -157,13 +177,15 @@ public extension Application {
                 (request?.logger ?? application.logger).error("MixpanelVapor not configured. Use app.mixpanel.configuration = ...")
                 return nil
             }
-            
+
             // This should not be necessary.
-            return .init(client: request?.client ?? application.client,
-                         logger: request?.logger ?? application.logger,
-                         configuration: configuration)
+            return .init(
+                client: request?.client ?? application.client,
+                logger: request?.logger ?? application.logger,
+                configuration: configuration
+            )
         }
-        
+
         /// Track an event to mixpanel
         /// - Parameters:
         ///   - name: The name of the event
@@ -171,6 +193,13 @@ public extension Application {
         ///   - params: Optional custom params assigned to the event
         public func track(name: String, request: Request? = nil, params: [String: any Content] = [:]) async {
             await client?.track(name: name, request: request, params: params)
+        }
+
+        /// Track the time it took for an action to occur
+        /// - Parameters:
+        ///   - name: The name of the event
+        public func time(name: String) async {
+            await client?.time(name: name)
         }
     }
 }
@@ -181,4 +210,3 @@ public extension Request {
         .init(application: application, request: self)
     }
 }
-

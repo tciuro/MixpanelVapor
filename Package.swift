@@ -9,13 +9,14 @@ let package = Package(
         .macOS(.v12),
         .iOS(.v15),
         .tvOS(.v15),
-        .watchOS(.v6)
+        .watchOS(.v6),
     ],
     products: [
         // Products define the executables and libraries a package produces, and make them visible to other packages.
         .library(
             name: "MixpanelVapor",
-            targets: ["MixpanelVapor"]),
+            targets: ["MixpanelVapor"]
+        ),
     ],
     dependencies: [
         // Dependencies declare other packages that this package depends on.
@@ -28,9 +29,11 @@ let package = Package(
         // Targets can depend on other targets in this package, and on products in packages this package depends on.
         .target(
             name: "MixpanelVapor",
-            dependencies: [.product(name: "Vapor", package: "vapor"), "UAParserSwift"]),
+            dependencies: [.product(name: "Vapor", package: "vapor"), "UAParserSwift"]
+        ),
         .testTarget(
             name: "MixpanelVaporTests",
-            dependencies: ["MixpanelVapor"]),
+            dependencies: ["MixpanelVapor"]
+        ),
     ]
 )
