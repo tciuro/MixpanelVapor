@@ -23,7 +23,7 @@ struct AnyContent: Content {
 struct Event: Content {
     var event: String
     var properties: [String: AnyContent]
-    
+
     init(event: String, properties: [String: any Content]) {
         self.event = event
         self.properties = properties.mapValues { value in
@@ -93,7 +93,6 @@ final class Mixpanel {
             current
         }
 
-
         let event = Event(event: name, properties: properties)
 
         do {
@@ -134,14 +133,14 @@ final class Mixpanel {
             logger.report(error: error)
         }
     }
-    
+
     private func _addDefaultParams(to params: [String: any Content]) -> [String: any Content] {
         var properties: [String: any Content] = [
             "time": Int(Date().timeIntervalSince1970 * 1000),
             "$insert_id": UUID().uuidString,
             "distinct_id": "",
         ]
-        
+
         properties.merge(params) { current, _ in
             current
         }
@@ -196,13 +195,6 @@ public extension Application {
         ///   - params: Optional custom params assigned to the event
         public func track(name: String, request: Request? = nil, params: [String: any Content] = [:]) async {
             await client?.track(name: name, request: request, metadata: params)
-        }
-
-        /// Track the time it took for an action to occur
-        /// - Parameters:
-        ///   - name: The name of the event
-        public func time(name: String, params: [String: any Content] = [:]) async {
-            await client?.time(name: name, metadata: params)
         }
     }
 }
