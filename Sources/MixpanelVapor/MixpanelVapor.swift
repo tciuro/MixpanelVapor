@@ -5,28 +5,28 @@ import Foundation
 import UAParserSwift
 import Vapor
 
-struct AnyContent: Content {
+public struct AnyContent: Content {
     private let _encode: (Encoder) throws -> Void
     public init(_ wrapped: some Encodable) {
         self._encode = wrapped.encode
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         try _encode(encoder)
     }
 
-    init(from _: Decoder) throws {
+    public init(from _: Decoder) throws {
         fatalError("we don't need this")
     }
 }
 
-struct Event: Content {
-    var event: String
-    var properties: [String: AnyContent]
+public struct Event: Content {
+    public var name: String
+    public var properties: [String: AnyContent]?
 
-    init(event: String, properties: [String: any Content]) {
-        self.event = event
-        self.properties = properties.mapValues { value in
+    public init(name: String, properties: [String: any Content]? = nil) {
+        self.name = name
+        self.properties = properties?.mapValues { value in
             AnyContent(value)
         }
     }
@@ -62,38 +62,41 @@ final class Mixpanel {
         self.configuration = configuration
     }
 
-    func track(name: String, request: Request?, metadata: [String: any Content]) async {
-        var properties: [String: any Content] = _addDefaultParams(to: metadata)
+    /// Track an event to mixpanel
+    /// - Parameters:
+    ///   - name: The name of the event
+    ///   - request: You can optionally pass request to automatically parse the ip address and user-agent header
+    ///   - params: Optional custom params assigned to the event
+    func track(events: [Event], request: Request? = nil) async {
+        let improvedEvents = events.map { event in
+            var properties: [String: any Content] = _addDefaultParams(to: event.properties ?? [:])
 
-        if let request {
-            // https://docs.mixpanel.com/docs/tracking/how-tos/effective-server-side-tracking
+            if let request {
+                // https://docs.mixpanel.com/docs/tracking/how-tos/effective-server-side-tracking
 
-            if let ip = request.peerAddress?.ipAddress {
-                properties["ip"] = ip
+                if let ip = request.peerAddress?.ipAddress {
+                    properties["ip"] = ip
+                }
+
+                if let userAgentHeader = request.headers[.userAgent].first {
+                    let parser = UAParser(agent: userAgentHeader)
+
+                    if let browser = parser.browser?.name {
+                        properties["$browser"] = browser
+                    }
+
+                    if let device = parser.device?.vendor {
+                        properties["$device"] = device
+                    }
+
+                    if let os = parser.os?.name {
+                        properties["$os"] = os
+                    }
+                }
             }
 
-            if let userAgentHeader = request.headers[.userAgent].first {
-                let parser = UAParser(agent: userAgentHeader)
-
-                if let browser = parser.browser?.name {
-                    properties["$browser"] = browser
-                }
-
-                if let device = parser.device?.vendor {
-                    properties["$device"] = device
-                }
-
-                if let os = parser.os?.name {
-                    properties["$os"] = os
-                }
-            }
+            return Event(name: event.name, properties: properties)
         }
-
-        properties.merge(metadata) { current, _ in
-            current
-        }
-
-        let event = Event(event: name, properties: properties)
 
         do {
             let response = try await client.post(URI(string: apiUrl + "/import?strict=1&project_id=\(configuration.projectId)")) { req in
@@ -102,7 +105,7 @@ final class Mixpanel {
 
                 req.headers.contentType = .json
 
-                try req.content.encode([event])
+                try req.content.encode(improvedEvents)
             }
 
             if response.status.code >= 400 {
@@ -113,8 +116,8 @@ final class Mixpanel {
         }
     }
 
-    func time(name: String, metadata: [String: any Content] = [:]) async {
-        let event = Event(event: name, properties: _addDefaultParams(to: metadata))
+    func time(event: Event) async {
+        let event = Event(name: event.name, properties: _addDefaultParams(to: event.properties ?? [:]))
 
         do {
             let response = try await client.post(URI(string: apiUrl + "/import?strict=1&project_id=\(configuration.projectId)")) { req in
@@ -186,15 +189,6 @@ public extension Application {
                 logger: request?.logger ?? application.logger,
                 configuration: configuration
             )
-        }
-
-        /// Track an event to mixpanel
-        /// - Parameters:
-        ///   - name: The name of the event
-        ///   - request: You can optionally pass request to automatically parse the ip address and user-agent header
-        ///   - params: Optional custom params assigned to the event
-        public func track(name: String, request: Request? = nil, params: [String: any Content] = [:]) async {
-            await client?.track(name: name, request: request, metadata: params)
         }
     }
 }
