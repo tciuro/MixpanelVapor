@@ -190,6 +190,15 @@ public extension Application {
                 configuration: configuration
             )
         }
+
+        /// Track an event to mixpanel
+        /// - Parameters:
+        ///   - name: The name of the event
+        ///   - request: You can optionally pass request to automatically parse the ip address and user-agent header
+        ///   - params: Optional custom params assigned to the event
+        public func track(events: [Event], request: Request? = nil) async {
+            await client?.track(events: events, request: request)
+        }
     }
 }
 
