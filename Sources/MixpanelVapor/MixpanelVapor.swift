@@ -21,11 +21,11 @@ public struct AnyContent: Content {
 }
 
 public struct Event: Content {
-    public var name: String
+    public var event: String
     public var properties: [String: AnyContent]?
 
     public init(name: String, properties: [String: any Content]? = nil) {
-        self.name = name
+        self.event = name
         self.properties = properties?.mapValues { value in
             AnyContent(value)
         }
@@ -95,7 +95,7 @@ final class Mixpanel {
                 }
             }
 
-            return Event(name: event.name, properties: properties)
+            return Event(name: event.event, properties: properties)
         }
 
         do {
@@ -117,7 +117,7 @@ final class Mixpanel {
     }
 
     func time(event: Event) async {
-        let event = Event(name: event.name, properties: _addDefaultParams(to: event.properties ?? [:]))
+        let event = Event(name: event.event, properties: _addDefaultParams(to: event.properties ?? [:]))
 
         do {
             let response = try await client.post(URI(string: apiUrl + "/import?strict=1&project_id=\(configuration.projectId)")) { req in
